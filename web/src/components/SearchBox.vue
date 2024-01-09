@@ -16,6 +16,20 @@
       @keydown.esc.exact="suggestionMenuOpen = false"
     >
       <template #append>
+        <v-tooltip bottom>
+          <template #activator="{ on, attrs }">
+          <v-select
+            v-model="lookbehind"
+            dense
+            class="lookbehind"
+            :items="lookBehindChoices"
+            prepend-inner-icon="mdi-clock-outline"
+            v-bind="attrs"
+            v-on="on"
+          ></v-select>
+          </template>
+          <span>Show only recent streams</span>
+        </v-tooltip>
         <v-menu offset-y right bottom>
           <template #activator="{ on, attrs }">
             <v-btn small icon v-bind="attrs" v-on="on"
@@ -47,6 +61,8 @@
         </v-menu>
       </template>
     </v-text-field>
+    
+    
     <v-menu
       ref="suggestionMenu"
       v-model="suggestionMenuOpen"
@@ -82,6 +98,29 @@ import { addSearch, getTermAt } from "./searchHistory";
 import { mapGetters, mapState, mapActions } from "vuex";
 import suggest from "../parser/suggest";
 
+const lookBehindChoices = [
+  {
+    text: "All",
+    value: "",
+  },
+  {
+    text: "1h",
+    value: "1h",
+  },
+  {
+    text: "6h",
+    value: "6h",
+  },
+  {
+    text: "12h",
+    value: "12h",
+  },
+  {
+    text: "24h",
+    value: "24h",
+  },
+];
+
 export default {
   name: "SearchBox",
   data() {
@@ -98,6 +137,8 @@ export default {
       suggestionMenuOpen: false,
       suggestionMenuPosX: 0,
       suggestionMenuPosY: 0,
+      lookbehind: "All",
+      lookBehindChoices,
     };
   },
   computed: {
@@ -298,5 +339,9 @@ export default {
 .font-white {
   color: black;
   font-weight: bold;
+}
+.lookbehind {
+  height: 10px;
+  width: 100px;
 }
 </style>
