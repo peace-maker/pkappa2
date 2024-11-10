@@ -2,6 +2,7 @@ package streams
 
 import (
 	"flag"
+	"log"
 	"time"
 
 	"github.com/google/gopacket"
@@ -24,14 +25,17 @@ type (
 	}
 
 	Stream struct {
-		ClientAddr       []byte
-		ServerAddr       []byte
-		ClientPort       uint16
-		ServerPort       uint16
-		Packets          []gopacket.CaptureInfo
-		PacketDirections []reassembly.TCPFlowDirection
-		Data             []StreamData
-		Flags            StreamFlags
+		ClientAddr          []byte
+		ServerAddr          []byte
+		ClientPort          uint16
+		ServerPort          uint16
+		Packets             []gopacket.CaptureInfo
+		PacketDirections    []reassembly.TCPFlowDirection
+		Data                []StreamData
+		Flags               StreamFlags
+		AcceptableAckServer reassembly.Sequence
+		AcceptableAckClient reassembly.Sequence
+		Suspicious          bool
 
 		tcpstate      *reassembly.TCPSimpleFSM
 		tcpoptchecker reassembly.TCPOptionCheck
@@ -69,6 +73,7 @@ func (f *StreamFactory) NewUDP(netFlow, udpFlow gopacket.Flow) *Stream {
 		ClientPort: toU16(udpFlow.Src().Raw()),
 		ServerPort: toU16(udpFlow.Dst().Raw()),
 		Flags:      StreamFlagsProtocolUDP,
+		Suspicious: false,
 	}
 	f.Streams = append(f.Streams, s)
 	return s
@@ -90,6 +95,7 @@ func (f *StreamFactory) New(netFlow, tcpFlow gopacket.Flow, tcp *layers.TCP, ac 
 			SupportMissingEstablishment: false,
 		}),
 		tcpoptchecker: reassembly.NewTCPOptionCheck(),
+		Suspicious:    false,
 	}
 	f.Streams = append(f.Streams, s)
 	return s
@@ -109,6 +115,25 @@ func (s *Stream) Accept(tcp *layers.TCP, ci gopacket.CaptureInfo, dir reassembly
 		if err := s.tcpoptchecker.Accept(tcp, ci, dir, nextSeq, start); err != nil {
 			return false
 		}
+	}
+	ack := reassembly.Sequence(tcp.Ack)
+	seq := reassembly.Sequence(tcp.Seq).Add(len(tcp.Payload))
+	if dir {
+		diff := s.AcceptableAckServer.Difference(ack)
+		if diff > 1 {
+			log.Printf("Invalid ACK: direction=%s diff=%d", dir, diff)
+			s.Suspicious = true
+			return false
+		}
+		s.AcceptableAckClient = seq
+	} else {
+		diff := s.AcceptableAckClient.Difference(ack)
+		if diff > 1 {
+			log.Printf("Invalid ACK: direction=%s diff=%d", dir, diff)
+			s.Suspicious = true
+			return false
+		}
+		s.AcceptableAckServer = seq
 	}
 	return true
 }
@@ -164,6 +189,9 @@ func (s *Stream) ReassembledSG(sg reassembly.ScatterGather, ac reassembly.Assemb
 }
 
 func (s *Stream) ReassemblyComplete(_ reassembly.AssemblerContext) bool {
+	if !s.Suspicious {
+		return false
+	}
 	s.Flags |= StreamFlagsComplete
 	// TODO: figure out what happens if we return true - will we be asked again and can return false then?
 	return false
